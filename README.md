@@ -46,7 +46,7 @@ Viteが表示するURLをデスクトップで開くか、同じネットワー�
 
 ## PWAと公開方法
 
-`npm run build` が生成する `dist/` を任意の静的ホスティングへ配置できます。ドメインのルートへ配置し、HTTPSを有効にしてください。同梱のmanifestとバージョン付きService Workerにより、ホーム画面への追加とapplication shellのoffline cacheに対応します。shellのファイル構成やcache処理を変更した場合は、cache versionも更新してください。
+`npm run build` が生成する `dist/` を任意の静的ホスティングへ配置できます。ドメイン直下だけでなく、GitHub Pagesなどのサブパスにも配置できます。HTTPSを有効にしてください。同梱のmanifestとバージョン付きService Workerにより、ホーム画面への追加とapplication shellのoffline cacheに対応します。shellのファイル構成やcache処理を変更した場合は、cache versionも更新してください。ソースリポジトリのルートではなく、必ずbuild後の `dist/` の内容を公開してください。
 
 ## 対応ブラウザ
 
