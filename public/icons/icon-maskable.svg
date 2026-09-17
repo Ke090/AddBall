@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">AddBall 30</title>
+  <rect width="512" height="512" fill="#10131a"/>
+  <circle cx="256" cy="256" r="154" fill="#6267e8"/>
+  <circle cx="216" cy="208" r="104" fill="#77cbf3" opacity=".55"/>
+  <text x="256" y="289" text-anchor="middle" font-family="system-ui, sans-serif" font-size="112" font-weight="800" fill="#fff">30</text>
+</svg>
