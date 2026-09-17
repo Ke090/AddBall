@@ -48,8 +48,6 @@ Viteが表示するURLをデスクトップで開くか、同じネットワー�
 
 `npm run build` が生成する `dist/` を任意の静的ホスティングへ配置できます。ドメイン直下だけでなく、GitHub Pagesなどのサブパスにも配置できます。HTTPSを有効にしてください。同梱のmanifestとバージョン付きService Workerにより、ホーム画面への追加とapplication shellのoffline cacheに対応します。shellのファイル構成やcache処理を変更した場合は、cache versionも更新してください。ソースリポジトリのルートではなく、必ずbuild後の `dist/` の内容を公開してください。
 
-`main` ブランチへのpush時は、GitHub Actionsがテストとbuildを実行し、`dist/`だけをGitHub Pagesへ公開します。初回のみリポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** に設定してください。Actionsの「Deploy to GitHub Pages」は手動実行もできます。
-
 ## 対応ブラウザ
 
 主な対象は iPhone Safari、Android Chrome、および現行デスクトップ版の Chrome、Safari、Firefox、Edgeです。端末傾き操作はprogressive enhancementとして提供し、対応ブラウザでは常にPointer Eventsによる操作が可能です。
