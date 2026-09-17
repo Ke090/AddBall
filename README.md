@@ -48,6 +48,22 @@ Viteが表示するURLをデスクトップで開くか、同じネットワー�
 
 `npm run build` が生成する `dist/` を任意の静的ホスティングへ配置できます。ドメイン直下だけでなく、GitHub Pagesなどのサブパスにも配置できます。HTTPSを有効にしてください。同梱のmanifestとバージョン付きService Workerにより、ホーム画面への追加とapplication shellのoffline cacheに対応します。shellのファイル構成やcache処理を変更した場合は、cache versionも更新してください。ソースリポジトリのルートではなく、必ずbuild後の `dist/` の内容を公開してください。
 
+## Pull Requestのコンフリクト解消
+
+GitHubでコンフリクトが表示された場合は、PRのブランチへ最新の`main`を取り込み、ファイルごとに両方の変更を確認して解消してください。`ours`または`theirs`を一括適用すると、ゲーム本体や公開設定の変更を失う可能性があります。
+
+```bash
+git fetch origin
+git switch <PRのブランチ名>
+git merge origin/main
+# <<<<<<<、=======、>>>>>>> を取り除き、必要な内容を残す
+git add <解消したファイル>
+git commit
+git push origin <PRのブランチ名>
+```
+
+`main`以外を公開元ブランチにしている場合は、`origin/main`をそのブランチ名へ置き換えてください。解消後は `git diff --check`、`npm run test`、`npm run build` を実行してからpushします。
+
 ## 対応ブラウザ
 
 主な対象は iPhone Safari、Android Chrome、および現行デスクトップ版の Chrome、Safari、Firefox、Edgeです。端末傾き操作はprogressive enhancementとして提供し、対応ブラウザでは常にPointer Eventsによる操作が可能です。
