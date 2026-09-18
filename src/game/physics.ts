@@ -10,6 +10,7 @@ export class PhysicsWorld {
   readonly balls = new Map<number, Ball>();
   readonly effects: Effect[] = [];
   private queue = new ActionQueue(); private nextId = 1; private tick = 0;
+  private settings: GameplaySettings; private random: () => number;
   onSound?: (kind: 'collision' | 'merge' | 'split', strength?: number) => void;
 
   constructor(private settings: GameplaySettings, private random: () => number = Math.random) {
