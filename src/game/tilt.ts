@@ -1,6 +1,7 @@
 import { GAME_CONFIG as C } from './config';
 type PermissionOrientationEvent = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> };
 export class TiltController {
+  strength: number = C.DEFAULT_GRAVITY;
   enabled = localStorage.getItem('addball-tilt') !== 'off'; supported = 'DeviceOrientationEvent' in window;
   private neutral: { beta: number; gamma: number } | null = null; private raw = { beta: 0, gamma: 0 }; private filtered = { x: 0, y: 0 }; private degrees = { x: 0, y: 0 }; private listening = false;
   async activate(): Promise<boolean> {
@@ -17,7 +18,7 @@ export class TiltController {
     this.degrees = { x, y };
     const axis = (v: number) => Math.abs(v) < C.TILT_DEAD_ZONE ? 0 : Math.max(-C.TILT_CLAMP, Math.min(C.TILT_CLAMP, v)) / C.TILT_CLAMP;
     this.filtered.x += (axis(x) - this.filtered.x) * C.TILT_SMOOTHING; this.filtered.y += (axis(y) - this.filtered.y) * C.TILT_SMOOTHING;
-    return { x: this.filtered.x * C.TILT_GRAVITY, y: this.filtered.y * C.TILT_GRAVITY };
+    return { x: this.filtered.x * this.strength, y: this.filtered.y * this.strength };
   }
   reading(): { active: boolean; x: number; y: number; degreesX: number; degreesY: number } { return { active: this.enabled && this.neutral !== null, x: this.filtered.x, y: this.filtered.y, degreesX: this.degrees.x, degreesY: this.degrees.y }; }
 }

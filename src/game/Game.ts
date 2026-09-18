@@ -5,6 +5,7 @@ import { PhysicsWorld } from './physics';
 import { CanvasRenderer } from './renderer';
 import { totalArea } from './rules';
 import { TiltController } from './tilt';
+import { SettingsStore } from './settings';
 export class Game {
   readonly world=new PhysicsWorld(); readonly renderer:CanvasRenderer; readonly tilt=new TiltController(); readonly audio=new GameAudio();
   private running=false; private last=0; private fps=60; private debugLast=0; private statusLast=0;

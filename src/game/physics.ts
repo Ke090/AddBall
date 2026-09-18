@@ -1,6 +1,7 @@
 import { Bodies, Body, Composite, Engine, Events, Vector, type IEventCollision, type Pair } from 'matter-js';
 import { GAME_CONFIG as C } from './config';
 import { ActionQueue, mergeAreas, splitArea, totalArea } from './rules';
+import type { GameplaySettings } from './settings';
 import type { Ball, Effect, GameAction } from './types';
 
 const WALL = 'wall';
@@ -11,7 +12,7 @@ export class PhysicsWorld {
   private queue = new ActionQueue(); private nextId = 1; private tick = 0;
   onSound?: (kind: 'collision' | 'merge' | 'split', strength?: number) => void;
 
-  constructor() {
+  constructor(private settings: GameplaySettings, private random: () => number = Math.random) {
     const f = C.FIELD_SIZE, t = C.WALL_THICKNESS;
     const options = { isStatic: true, label: WALL, restitution: C.RESTITUTION };
     Composite.add(this.engine.world, [Bodies.rectangle(f / 2, -t / 2, f + t * 2, t, options), Bodies.rectangle(f / 2, f + t / 2, f + t * 2, t, options), Bodies.rectangle(-t / 2, f / 2, t, f + t * 2, options), Bodies.rectangle(f + t / 2, f / 2, t, f + t * 2, options)]);
@@ -22,7 +23,7 @@ export class PhysicsWorld {
     for (const ball of this.balls.values()) Composite.remove(this.engine.world, ball.body);
     this.balls.clear(); this.effects.length = 0; this.nextId = 1;
     const cols = 6, gap = 1.52;
-    for (let i = 0; i < C.INITIAL_BALL_COUNT; i++) this.addBall(C.INITIAL_AREA, { x: 1.2 + (i % cols) * gap, y: 1.2 + Math.floor(i / cols) * gap }, { x: (Math.random() - .5) * .5, y: (Math.random() - .5) * .5 }, 0);
+    for (let i = 0; i < C.INITIAL_BALL_COUNT; i++) this.addBall(C.INITIAL_AREA, { x: 1.2 + (i % cols) * gap, y: 1.2 + Math.floor(i / cols) * gap }, { x: 0, y: 0 }, 0);
     this.assertArea();
   }
   private addBall(area: number, position: Matter.Vector, velocity: Matter.Vector, splitReadyAt: number): Ball {
@@ -65,15 +66,14 @@ export class PhysicsWorld {
     const a = this.fromBody(pair.bodyA), b = this.fromBody(pair.bodyB);
     if (a && b) {
       const relative = Vector.sub(a.body.velocity, b.body.velocity); const impact = Math.abs(Vector.dot(relative, pair.collision.normal));
-      if (impact >= C.MERGE_IMPACT_THRESHOLD) this.queue.queue({ type: 'merge', a: a.id, b: b.id });
-      else if (impact > .7) { this.onSound?.('collision', impact); this.effect('impact', pair.collision.supports[0]?.x ?? a.body.position.x, pair.collision.supports[0]?.y ?? a.body.position.y, a.hue); }
+      if (this.random() < this.settings.mergeProbability) this.queue.queue({ type: 'merge', a: a.id, b: b.id });
+      else { this.onSound?.('collision', impact); this.effect('impact', pair.collision.supports[0]?.x ?? a.body.position.x, pair.collision.supports[0]?.y ?? a.body.position.y, a.hue); }
       return;
     }
     const ball = a ?? b; const wall = a ? pair.bodyB : pair.bodyA;
     if (!ball || wall.label !== WALL || ball.area === 1 || performance.now() < ball.splitReadyAt) return;
     const awayFromWall = a ? Vector.neg(pair.collision.normal) : pair.collision.normal;
-    const impact = Math.abs(Vector.dot(ball.body.velocity, awayFromWall));
-    if (impact >= C.SPLIT_IMPACT_THRESHOLD) this.queue.queue({ type: 'split', id: ball.id, normal: awayFromWall });
+    if (this.random() < this.settings.splitProbability) this.queue.queue({ type: 'split', id: ball.id, normal: awayFromWall });
   }
   private fromBody(body: Matter.Body): Ball | undefined { if (!body.label.startsWith('ball:')) return; return this.balls.get(Number(body.label.slice(5))); }
   private apply(action: GameAction): void { if (action.type === 'merge') this.merge(action.a, action.b); else this.split(action.id, action.normal); }
