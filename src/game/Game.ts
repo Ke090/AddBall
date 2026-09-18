@@ -11,6 +11,7 @@ export class Game {
   private running=false; private last=0; private fps=60; private debugLast=0; private statusLast=0;
   constructor(canvas:HTMLCanvasElement,private debug:HTMLElement|null,private tiltStatus:HTMLOutputElement|null) { this.tilt.strength=this.settings.values.gravity; this.renderer=new CanvasRenderer(canvas,this.world); new PointerInput(canvas,this.renderer,this.world); this.world.onSound=(kind,strength)=>this.audio.play(kind,strength); document.addEventListener('visibilitychange',()=>{this.last=performance.now();}); this.updateTiltStatus(); }
   setGravity(value:number):void { this.settings.set('gravity',value); this.tilt.strength=this.settings.values.gravity; }
+  setInitialBallCount(value:number):void { this.settings.set('initialBallCount',value); this.restart(); }
   async start():Promise<boolean> { this.audio.activate(); const tilt=await this.tilt.activate(); if(!this.running){this.running=true;this.last=performance.now();requestAnimationFrame(this.frame);} return tilt; }
   restart():void { this.world.restart(); this.last=performance.now(); }
   private updateTiltStatus():void { if(!this.tiltStatus)return; const t=this.tilt.reading(); this.tiltStatus.textContent=t.active?`傾き X(右+) ${t.x>=0?'+':''}${t.x.toFixed(2)} / Y(下+) ${t.y>=0?'+':''}${t.y.toFixed(2)}`:'傾き --'; }
