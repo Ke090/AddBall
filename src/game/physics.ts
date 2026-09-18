@@ -27,21 +27,38 @@ export class PhysicsWorld {
   }
   private addBall(area: number, position: Matter.Vector, velocity: Matter.Vector, splitReadyAt: number): Ball {
     const id = this.nextId++, radius = Math.sqrt(area / Math.PI);
-    const body = Bodies.circle(position.x, position.y, radius, { label: `ball:${id}`, restitution: C.RESTITUTION, friction: 0.015, frictionAir: C.FRICTION_AIR, density: 0.01 });
+    const body = Bodies.circle(position.x, position.y, radius, { label: `ball:${id}`, restitution: C.RESTITUTION, friction: 0, frictionStatic: 0, frictionAir: C.FRICTION_AIR, density: 0.01 });
     Body.setVelocity(body, velocity); Composite.add(this.engine.world, body);
-    const ball = { id, area, body, hue: (id * 47 + area * 13) % 360, splitReadyAt, driftAngle: Math.random() * Math.PI * 2 }; this.balls.set(id, ball); return ball;
+    const ball = { id, area, body, hue: (id * 47 + area * 13) % 360, splitReadyAt, driftAngle: Math.random() * Math.PI * 2, driftChangeAt: performance.now() + this.nextTurnDelay() }; this.balls.set(id, ball); return ball;
   }
   step(deltaMs: number, gravity: Matter.Vector): void {
     this.tick++;
     this.engine.gravity.x = gravity.x; this.engine.gravity.y = gravity.y; this.engine.gravity.scale = 1;
+    const now = performance.now();
     for (const ball of this.balls.values()) {
-      ball.driftAngle += (Math.random() - .5) * 0.08;
-      Body.applyForce(ball.body, ball.body.position, { x: Math.cos(ball.driftAngle) * C.RANDOM_FORCE * ball.body.mass, y: Math.sin(ball.driftAngle) * C.RANDOM_FORCE * ball.body.mass });
-      const speed = Vector.magnitude(ball.body.velocity); if (speed > C.MAX_SPEED) Body.setVelocity(ball.body, Vector.mult(Vector.normalise(ball.body.velocity), C.MAX_SPEED));
+      if (now >= ball.driftChangeAt) { ball.driftAngle = Math.random() * Math.PI * 2; ball.driftChangeAt = now + this.nextTurnDelay(); }
     }
-    Engine.update(this.engine, Math.min(deltaMs, C.MAX_DELTA_MS));
+    let remaining = Math.min(deltaMs, C.MAX_DELTA_MS);
+    while (remaining > 0) {
+      for (const ball of this.balls.values()) {
+        Body.applyForce(ball.body, ball.body.position, { x: Math.cos(ball.driftAngle) * C.RANDOM_FORCE * ball.body.mass, y: Math.sin(ball.driftAngle) * C.RANDOM_FORCE * ball.body.mass });
+        const speed = Vector.magnitude(ball.body.velocity); if (speed > C.MAX_SPEED) Body.setVelocity(ball.body, Vector.mult(Vector.normalise(ball.body.velocity), C.MAX_SPEED));
+      }
+      const step = Math.min(remaining, C.PHYSICS_STEP_MS); Engine.update(this.engine, step); remaining -= step;
+    }
     for (const action of this.queue.drain()) this.apply(action);
+    this.containBalls();
     if (this.tick % 120 === 0) this.assertArea();
+  }
+  private nextTurnDelay(): number { return C.RANDOM_TURN_MIN_MS + Math.random() * (C.RANDOM_TURN_MAX_MS - C.RANDOM_TURN_MIN_MS); }
+  private containBalls(): void {
+    for (const ball of this.balls.values()) {
+      const radius = ball.body.circleRadius ?? Math.sqrt(ball.area / Math.PI), p = ball.body.position, v = ball.body.velocity;
+      const x = Math.max(radius, Math.min(C.FIELD_SIZE - radius, p.x)), y = Math.max(radius, Math.min(C.FIELD_SIZE - radius, p.y));
+      if (x === p.x && y === p.y) continue;
+      Body.setPosition(ball.body, { x, y });
+      Body.setVelocity(ball.body, { x: x !== p.x && Math.sign(v.x) === Math.sign(p.x - x) ? -v.x * C.RESTITUTION : v.x, y: y !== p.y && Math.sign(v.y) === Math.sign(p.y - y) ? -v.y * C.RESTITUTION : v.y });
+    }
   }
   private collisions(event: IEventCollision<Engine>): void { for (const pair of event.pairs) this.measurePair(pair); }
   private measurePair(pair: Pair): void {
@@ -68,7 +85,7 @@ export class PhysicsWorld {
   private split(id: number, normal: Matter.Vector): void {
     const ball = this.balls.get(id); if (!ball) return; const parts = splitArea(ball.area); if (!parts) return;
     const tangent = Vector.perp(normal), pos = { ...ball.body.position }, base = { ...ball.body.velocity }, ready = performance.now() + C.SPLIT_COOLDOWN_MS;
-    this.remove(ball); parts.forEach((area, i) => { const sign = i ? 1 : -1; const radius = Math.sqrt(area / Math.PI); const p = Vector.add(pos, Vector.add(Vector.mult(normal, radius * .32), Vector.mult(tangent, sign * radius * .72))); const v = Vector.add(Vector.mult(base, .48), Vector.add(Vector.mult(normal, 1.0), Vector.mult(tangent, sign * 1.2))); this.addBall(area, p, v, ready); });
+    this.remove(ball); parts.forEach((area, i) => { const sign = i ? 1 : -1; const radius = Math.sqrt(area / Math.PI); const p = Vector.add(pos, Vector.add(Vector.mult(normal, radius * .32), Vector.mult(tangent, sign * radius * 1.05))); const v = Vector.add(Vector.mult(base, .48), Vector.add(Vector.mult(normal, 1.0), Vector.mult(tangent, sign * 1.2))); this.addBall(area, p, v, ready); });
     this.effect('split', pos.x, pos.y, ball.hue); this.onSound?.('split'); this.assertArea();
   }
   private remove(ball: Ball): void { Composite.remove(this.engine.world, ball.body); this.balls.delete(ball.id); }
