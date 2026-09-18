@@ -10,6 +10,7 @@ export class PhysicsWorld {
   readonly balls = new Map<number, Ball>();
   readonly effects: Effect[] = [];
   private queue = new ActionQueue(); private nextId = 1; private tick = 0;
+  private expectedTotalArea = 0;
   private stepVelocities = new Map<number, Matter.Vector>(); private wallReflections = new Map<number, Matter.Vector>();
   private settings: GameplaySettings; private random: () => number;
   onSound?: (kind: 'collision' | 'merge' | 'split', strength?: number) => void;
@@ -28,14 +29,14 @@ export class PhysicsWorld {
     this.balls.clear(); this.effects.length = 0; this.nextId = 1;
     const count = this.settings.initialBallCount;
     const cols = Math.ceil(Math.sqrt(count)), rows = Math.ceil(count / cols);
-    const baseArea = Math.floor(C.TOTAL_AREA / count), extra = C.TOTAL_AREA % count;
+    this.expectedTotalArea = count;
     for (let i = 0; i < count; i++) {
       const position = count === 1
         ? { x: C.FIELD_SIZE / 2, y: C.FIELD_SIZE / 2 }
         : count === C.DEFAULT_INITIAL_BALL_COUNT
           ? { x: 1.2 + (i % 6) * 1.52, y: 1.2 + Math.floor(i / 6) * 1.52 }
         : { x: (i % cols + .5) * C.FIELD_SIZE / cols, y: (Math.floor(i / cols) + .5) * C.FIELD_SIZE / rows };
-      this.addBall(baseArea + (i < extra ? 1 : 0), position, { x: 0, y: 0 }, 0, 0);
+      this.addBall(1, position, { x: 0, y: 0 }, 0, 0);
     }
     this.assertArea();
   }
@@ -52,11 +53,23 @@ export class PhysicsWorld {
     while (remaining > 0) {
       for (const ball of this.balls.values()) {
         ball.body.frictionAir = this.settings.friction;
-        const speed = Vector.magnitude(ball.body.velocity); if (speed > C.MAX_SPEED) Body.setVelocity(ball.body, Vector.mult(Vector.normalise(ball.body.velocity), C.MAX_SPEED));
       }
       this.stepVelocities = new Map([...this.balls].map(([id, ball]) => [id, { ...ball.body.velocity }]));
+      const conserveMomentum = this.settings.friction === 0 && gravity.x === 0 && gravity.y === 0;
+      const momentumBefore = conserveMomentum ? this.momentumFrom(this.stepVelocities) : null;
+      const energyBefore = conserveMomentum ? this.kineticEnergyFrom(this.stepVelocities) : 0;
       const step = Math.min(remaining, C.PHYSICS_STEP_MS); Engine.update(this.engine, step); remaining -= step;
       for (const [id, velocity] of this.wallReflections) { const ball = this.balls.get(id); if (ball) Body.setVelocity(ball.body, velocity); }
+      if (momentumBefore) {
+        for (const [id, reflected] of this.wallReflections) {
+          const ball = this.balls.get(id), incoming = this.stepVelocities.get(id);
+          if (ball && incoming) {
+            momentumBefore.x += ball.area * (reflected.x - incoming.x);
+            momentumBefore.y += ball.area * (reflected.y - incoming.y);
+          }
+        }
+        this.restoreCollisionInvariants(momentumBefore, energyBefore);
+      }
       this.wallReflections.clear();
     }
     for (const action of this.queue.drain()) this.apply(action);
@@ -87,7 +100,7 @@ export class PhysicsWorld {
     const awayFromWall = wall.position.x < 0 ? { x: 1, y: 0 }
       : wall.position.x > C.FIELD_SIZE ? { x: -1, y: 0 }
         : wall.position.y < 0 ? { x: 0, y: 1 } : { x: 0, y: -1 };
-    const incoming = this.stepVelocities.get(ball.id) ?? ball.body.velocity;
+    const incoming = this.wallReflections.get(ball.id) ?? this.stepVelocities.get(ball.id) ?? ball.body.velocity;
     if (Vector.dot(incoming, awayFromWall) < 0) this.wallReflections.set(ball.id, Vector.sub(incoming, Vector.mult(awayFromWall, 2 * Vector.dot(incoming, awayFromWall))));
     if (ball.area === 1 || performance.now() < ball.splitReadyAt) return;
     if (this.random() < this.settings.splitProbability) this.queue.queue({ type: 'split', id: ball.id, normal: awayFromWall });
@@ -111,5 +124,29 @@ export class PhysicsWorld {
   private split(id: number, normal: Matter.Vector): void { this.splitBall(id, normal); }
   private remove(ball: Ball): void { Composite.remove(this.engine.world, ball.body); this.balls.delete(ball.id); }
   private effect(type: Effect['type'], x: number, y: number, hue: number): void { this.effects.push({ type, x, y, hue, born: performance.now() }); }
-  private assertArea(): void { const sum = totalArea([...this.balls.values()].map((b) => b.area)); if (sum !== C.TOTAL_AREA) throw new Error(`Area invariant violated: ${sum}`); }
+  private momentumFrom(velocities: ReadonlyMap<number, Matter.Vector>): Matter.Vector {
+    let x = 0, y = 0;
+    for (const [id, velocity] of velocities) { const area = this.balls.get(id)?.area ?? 0; x += area * velocity.x; y += area * velocity.y; }
+    return { x, y };
+  }
+  private kineticEnergyFrom(velocities: ReadonlyMap<number, Matter.Vector>): number {
+    let energy = 0;
+    for (const [id, velocity] of velocities) { const area = this.balls.get(id)?.area ?? 0; energy += area * Vector.magnitudeSquared(velocity) / 2; }
+    return energy;
+  }
+  private restoreCollisionInvariants(momentum: Matter.Vector, energy: number): void {
+    const balls = [...this.balls.values()], mass = totalArea(balls.map((ball) => ball.area));
+    if (mass === 0) return;
+    const current = this.momentumFrom(new Map(balls.map((ball) => [ball.id, ball.body.velocity])));
+    const correction = { x: (momentum.x - current.x) / mass, y: (momentum.y - current.y) / mass };
+    for (const ball of balls) Body.setVelocity(ball.body, Vector.add(ball.body.velocity, correction));
+
+    const centreVelocity = Vector.div(momentum, mass);
+    const relativeEnergy = balls.reduce((sum, ball) => sum + ball.area * Vector.magnitudeSquared(Vector.sub(ball.body.velocity, centreVelocity)) / 2, 0);
+    const targetRelativeEnergy = Math.max(0, energy - Vector.magnitudeSquared(momentum) / (2 * mass));
+    const scale = relativeEnergy > 1e-12 ? Math.sqrt(targetRelativeEnergy / relativeEnergy) : 0;
+    for (const ball of balls) Body.setVelocity(ball.body, Vector.add(centreVelocity, Vector.mult(Vector.sub(ball.body.velocity, centreVelocity), scale)));
+  }
+  totalMomentum(): Matter.Vector { return this.momentumFrom(new Map([...this.balls].map(([id, ball]) => [id, ball.body.velocity]))); }
+  private assertArea(): void { const sum = totalArea([...this.balls.values()].map((b) => b.area)); if (sum !== this.expectedTotalArea) throw new Error(`Area invariant violated: ${sum}`); }
 }
