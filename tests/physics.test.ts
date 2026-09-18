@@ -6,6 +6,54 @@ import type { GameplaySettings } from '../src/game/settings';
 
 const noGravity = { x: 0, y: 0 };
 const settings: GameplaySettings = { friction: C.DEFAULT_FRICTION, gravity: C.DEFAULT_GRAVITY, mergeProbability: 1, splitProbability: 1, initialBallCount: C.DEFAULT_INITIAL_BALL_COUNT };
+const energy = (world: PhysicsWorld) => [...world.balls.values()].reduce((sum, ball) => sum + ball.area * Vector.magnitudeSquared(ball.body.velocity) / 2, 0);
+
+describe('friction regression', () => {
+  it.each([0.001, C.DEFAULT_FRICTION, C.MAX_FRICTION])('dissipates energy at every frame during repeated collisions (friction %s)', (friction) => {
+    const world = new PhysicsWorld({ ...settings, friction, mergeProbability: 0, splitProbability: 0 });
+    Body.setVelocity([...world.balls.values()][0].body, { x: 0.4, y: 0.2 });
+    const initial = energy(world);
+    let previous = initial;
+    for (let frame = 0; frame < 1200; frame++) {
+      // Include the short remainder substeps seen with requestAnimationFrame.
+      world.step([16, 1000 / 60, 7, 34][frame % 4], noGravity);
+      const current = energy(world);
+      expect(current).toBeLessThanOrEqual(previous + 1e-12);
+      previous = current;
+    }
+    expect(previous).toBeLessThan(initial * 0.2);
+    expect(world.balls.size).toBe(settings.initialBallCount);
+  });
+
+  it('reduces momentum even on a wall reflection', () => {
+    const world = new PhysicsWorld({ ...settings, initialBallCount: 1, splitProbability: 0 });
+    const ball = [...world.balls.values()][0];
+    Body.setPosition(ball.body, { x: ball.body.circleRadius! + 0.01, y: 5 });
+    Body.setVelocity(ball.body, { x: -0.2, y: 0.1 });
+    const before = Vector.magnitude(world.totalMomentum());
+    world.step(C.PHYSICS_STEP_MS, noGravity);
+    expect(ball.body.velocity.x).toBeGreaterThan(0);
+    expect(Vector.magnitude(world.totalMomentum())).toBeCloseTo(before * (1 - C.DEFAULT_FRICTION / 2), 10);
+  });
+
+  it('reduces total momentum in a ball collision without wall impulses', () => {
+    const world = new PhysicsWorld({ ...settings, initialBallCount: 2, mergeProbability: 0, splitProbability: 0 });
+    const [a, b] = [...world.balls.values()];
+    Body.setPosition(a.body, { x: 4.44, y: 5 });
+    Body.setPosition(b.body, { x: 5.56, y: 5 });
+    Body.setVelocity(a.body, { x: 0.1, y: 0 });
+    const before = world.totalMomentum();
+    world.step(C.PHYSICS_STEP_MS, noGravity);
+    expect(world.totalMomentum().x).toBeCloseTo(before.x * (1 - C.DEFAULT_FRICTION / 2), 10);
+    expect(world.totalMomentum().y).toBeCloseTo(0, 10);
+  });
+
+  it('still allows gravity to accelerate a resting ball', () => {
+    const world = new PhysicsWorld({ ...settings, initialBallCount: 1 });
+    world.step(C.PHYSICS_STEP_MS, { x: C.DEFAULT_GRAVITY, y: 0 });
+    expect([...world.balls.values()][0].body.velocity.x).toBeCloseTo(C.DEFAULT_GRAVITY * C.PHYSICS_STEP_MS * (1000 / 60), 10);
+  });
+});
 
 describe('physics safety and collisions', () => {
   it.each([1, 7, 30, 100])('creates %i area-1 balls with a matching total area', (initialBallCount) => {

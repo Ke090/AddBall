@@ -21,6 +21,11 @@ export class PhysicsWorld {
     const f = C.FIELD_SIZE, t = C.WALL_THICKNESS;
     const options = { isStatic: true, label: WALL, restitution: C.RESTITUTION };
     Composite.add(this.engine.world, [Bodies.rectangle(f / 2, -t / 2, f + t * 2, t, options), Bodies.rectangle(f / 2, f + t / 2, f + t * 2, t, options), Bodies.rectangle(-t / 2, f / 2, t, f + t * 2, options), Bodies.rectangle(f + t / 2, f / 2, t, f + t * 2, options)]);
+    // Capture velocities after friction/gravity, but before the collision solver.
+    // getVelocity normalises Matter's substep displacement to its base time step.
+    Events.on(this.engine, 'beforeSolve', () => {
+      this.stepVelocities = new Map([...this.balls].map(([id, ball]) => [id, Body.getVelocity(ball.body)]));
+    });
     Events.on(this.engine, 'collisionStart', (event) => this.collisions(event));
     this.restart();
   }
@@ -54,22 +59,18 @@ export class PhysicsWorld {
       for (const ball of this.balls.values()) {
         ball.body.frictionAir = this.settings.friction;
       }
-      this.stepVelocities = new Map([...this.balls].map(([id, ball]) => [id, { ...ball.body.velocity }]));
-      const conserveMomentum = this.settings.friction === 0 && gravity.x === 0 && gravity.y === 0;
-      const momentumBefore = conserveMomentum ? this.momentumFrom(this.stepVelocities) : null;
-      const energyBefore = conserveMomentum ? this.kineticEnergyFrom(this.stepVelocities) : 0;
       const step = Math.min(remaining, C.PHYSICS_STEP_MS); Engine.update(this.engine, step); remaining -= step;
+      const momentumBefore = this.momentumFrom(this.stepVelocities);
+      const energyBefore = this.kineticEnergyFrom(this.stepVelocities);
       for (const [id, velocity] of this.wallReflections) { const ball = this.balls.get(id); if (ball) Body.setVelocity(ball.body, velocity); }
-      if (momentumBefore) {
-        for (const [id, reflected] of this.wallReflections) {
-          const ball = this.balls.get(id), incoming = this.stepVelocities.get(id);
-          if (ball && incoming) {
-            momentumBefore.x += ball.area * (reflected.x - incoming.x);
-            momentumBefore.y += ball.area * (reflected.y - incoming.y);
-          }
+      for (const [id, reflected] of this.wallReflections) {
+        const ball = this.balls.get(id), incoming = this.stepVelocities.get(id);
+        if (ball && incoming) {
+          momentumBefore.x += ball.area * (reflected.x - incoming.x);
+          momentumBefore.y += ball.area * (reflected.y - incoming.y);
         }
-        this.restoreCollisionInvariants(momentumBefore, energyBefore);
       }
+      this.restoreCollisionInvariants(momentumBefore, energyBefore);
       this.wallReflections.clear();
     }
     for (const action of this.queue.drain()) this.apply(action);
