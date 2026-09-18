@@ -28,17 +28,21 @@ export class PhysicsWorld {
   }
   private addBall(area: number, position: Matter.Vector, velocity: Matter.Vector, splitReadyAt: number): Ball {
     const id = this.nextId++, radius = Math.sqrt(area / Math.PI);
-    const body = Bodies.circle(position.x, position.y, radius, { label: `ball:${id}`, restitution: C.RESTITUTION, friction: 0, frictionStatic: 0, frictionAir: this.settings.friction, density: 0.01 });
+    const body = Bodies.circle(position.x, position.y, radius, { label: `ball:${id}`, restitution: C.RESTITUTION, friction: 0, frictionStatic: 0, frictionAir: C.FRICTION_AIR, density: 0.01 });
     Body.setVelocity(body, velocity); Composite.add(this.engine.world, body);
-    const ball = { id, area, body, hue: (id * 47 + area * 13) % 360, splitReadyAt }; this.balls.set(id, ball); return ball;
+    const ball = { id, area, body, hue: (id * 47 + area * 13) % 360, splitReadyAt, driftAngle: Math.random() * Math.PI * 2, driftChangeAt: performance.now() + this.nextTurnDelay() }; this.balls.set(id, ball); return ball;
   }
   step(deltaMs: number, gravity: Matter.Vector): void {
     this.tick++;
     this.engine.gravity.x = gravity.x; this.engine.gravity.y = gravity.y; this.engine.gravity.scale = 1;
+    const now = performance.now();
+    for (const ball of this.balls.values()) {
+      if (now >= ball.driftChangeAt) { ball.driftAngle = Math.random() * Math.PI * 2; ball.driftChangeAt = now + this.nextTurnDelay(); }
+    }
     let remaining = Math.min(deltaMs, C.MAX_DELTA_MS);
     while (remaining > 0) {
       for (const ball of this.balls.values()) {
-        ball.body.frictionAir = this.settings.friction;
+        Body.applyForce(ball.body, ball.body.position, { x: Math.cos(ball.driftAngle) * C.RANDOM_FORCE * ball.body.mass, y: Math.sin(ball.driftAngle) * C.RANDOM_FORCE * ball.body.mass });
         const speed = Vector.magnitude(ball.body.velocity); if (speed > C.MAX_SPEED) Body.setVelocity(ball.body, Vector.mult(Vector.normalise(ball.body.velocity), C.MAX_SPEED));
       }
       const step = Math.min(remaining, C.PHYSICS_STEP_MS); Engine.update(this.engine, step); remaining -= step;
@@ -47,6 +51,7 @@ export class PhysicsWorld {
     this.containBalls();
     if (this.tick % 120 === 0) this.assertArea();
   }
+  private nextTurnDelay(): number { return C.RANDOM_TURN_MIN_MS + Math.random() * (C.RANDOM_TURN_MAX_MS - C.RANDOM_TURN_MIN_MS); }
   private containBalls(): void {
     for (const ball of this.balls.values()) {
       const radius = ball.body.circleRadius ?? Math.sqrt(ball.area / Math.PI), p = ball.body.position, v = ball.body.velocity;
