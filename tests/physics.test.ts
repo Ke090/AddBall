@@ -8,12 +8,12 @@ const noGravity = { x: 0, y: 0 };
 const settings: GameplaySettings = { friction: C.DEFAULT_FRICTION, gravity: C.DEFAULT_GRAVITY, mergeProbability: 1, splitProbability: 1, initialBallCount: C.DEFAULT_INITIAL_BALL_COUNT };
 
 describe('physics safety and collisions', () => {
-  it.each([1, 7, 30])('creates %i integer-area balls totaling 30', (initialBallCount) => {
+  it.each([1, 7, 30, 100])('creates %i area-1 balls with a matching total area', (initialBallCount) => {
     const world = new PhysicsWorld({ ...settings, initialBallCount });
     const areas = [...world.balls.values()].map((ball) => ball.area);
     expect(areas).toHaveLength(initialBallCount);
-    expect(areas.every(Number.isInteger)).toBe(true);
-    expect(areas.reduce((sum, area) => sum + area, 0)).toBe(C.TOTAL_AREA);
+    expect(areas.every((area) => area === 1)).toBe(true);
+    expect(areas.reduce((sum, area) => sum + area, 0)).toBe(initialBallCount);
   });
 
   it('supports parameter-less construction for existing integrations', () => {
@@ -65,7 +65,11 @@ describe('physics safety and collisions', () => {
   });
 
   it('directly splits at zero probability without increasing speed and blocks immediate merging', () => {
-    const world = new PhysicsWorld({ ...settings, initialBallCount: 1, friction: 0, splitProbability: 0, mergeProbability: 1 });
+    const world = new PhysicsWorld({ ...settings, initialBallCount: 2, friction: 0, splitProbability: 0, mergeProbability: 1 }, () => 0);
+    const [left, right] = [...world.balls.values()];
+    Body.setPosition(left.body, { x: 4.44, y: 5 }); Body.setPosition(right.body, { x: 5.56, y: 5 });
+    Body.setVelocity(left.body, { x: 0.01, y: 0 }); Body.setVelocity(right.body, { x: -0.01, y: 0 });
+    for (let frame = 0; frame < 4 && world.balls.size === 2; frame++) world.step(16, noGravity);
     const original = [...world.balls.values()][0];
     Body.setVelocity(original.body, { x: 0.8, y: -0.3 });
     const velocity = { ...original.body.velocity };
@@ -83,7 +87,7 @@ describe('physics safety and collisions', () => {
     Body.setPosition(children[1].body, { x: 5.2, y: 5 });
     world.step(16, noGravity);
     expect(world.balls.size).toBe(2);
-    expect([...world.balls.values()].reduce((sum, ball) => sum + ball.area, 0)).toBe(C.TOTAL_AREA);
+    expect([...world.balls.values()].reduce((sum, ball) => sum + ball.area, 0)).toBe(2);
   });
 
   it('keeps every ball inside the field after an extreme displacement', () => {
@@ -115,7 +119,7 @@ describe('physics safety and collisions', () => {
 
     expect(world.balls.size).toBe(C.INITIAL_BALL_COUNT - 1);
     expect([...world.balls.values()].some((ball) => ball.area === 2)).toBe(true);
-    expect([...world.balls.values()].reduce((sum, ball) => sum + ball.area, 0)).toBe(C.TOTAL_AREA);
+    expect([...world.balls.values()].reduce((sum, ball) => sum + ball.area, 0)).toBe(C.DEFAULT_INITIAL_BALL_COUNT);
   });
 
   it('uses probability rather than impact speed to decide a merge', () => {
@@ -150,13 +154,20 @@ describe('physics safety and collisions', () => {
     expect([...world.balls.values()].every((ball) => ball.area === 1)).toBe(true);
   });
 
-  it('limits speed even when a ball is thrown unrealistically fast', () => {
-    const world = new PhysicsWorld({ ...settings }, () => 0);
-    const ball = [...world.balls.values()][0];
-    Body.setVelocity(ball.body, { x: 100, y: 100 });
+  it('conserves momentum and kinetic energy during force-free ball collisions', () => {
+    const world = new PhysicsWorld({ ...settings, initialBallCount: 2, friction: 0, mergeProbability: 0, splitProbability: 0 }, () => 0.5);
+    const [left, right] = [...world.balls.values()];
+    Body.setPosition(left.body, { x: 4.4, y: 5 }); Body.setPosition(right.body, { x: 5.6, y: 5 });
+    Body.setVelocity(left.body, { x: 0.03, y: 0.005 }); Body.setVelocity(right.body, { x: -0.01, y: -0.005 });
+    const initialMomentum = world.totalMomentum();
+    const initialEnergy = [...world.balls.values()].reduce((sum, ball) => sum + ball.area * Vector.magnitudeSquared(ball.body.velocity) / 2, 0);
 
-    world.step(1, noGravity);
+    for (let frame = 0; frame < 40; frame++) world.step(16, noGravity);
 
-    expect(Vector.magnitude(ball.body.velocity)).toBeLessThanOrEqual(C.MAX_SPEED + 0.01);
+    const finalMomentum = world.totalMomentum();
+    const finalEnergy = [...world.balls.values()].reduce((sum, ball) => sum + ball.area * Vector.magnitudeSquared(ball.body.velocity) / 2, 0);
+    expect(finalMomentum.x).toBeCloseTo(initialMomentum.x, 8);
+    expect(finalMomentum.y).toBeCloseTo(initialMomentum.y, 8);
+    expect(finalEnergy).toBeCloseTo(initialEnergy, 8);
   });
 });
